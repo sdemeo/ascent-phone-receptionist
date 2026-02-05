@@ -24,6 +24,36 @@ const validateTwilioRequest = (req, res, next) => {
 
 async function classifyIntent(userSpeech) {
   try {
+    // Keyword detection first (faster and more reliable)
+    const lowerSpeech = userSpeech.toLowerCase();
+    
+    // Claims keywords
+    if (lowerSpeech.includes('claim') || 
+        lowerSpeech.includes('accident') || 
+        lowerSpeech.includes('loss') ||
+        lowerSpeech.includes('adjuster') ||
+        lowerSpeech.includes('rental') ||
+        lowerSpeech.includes('payment') ||
+        lowerSpeech.includes('denial')) {
+      console.log(`Classified intent: "claims" (keyword match) from speech: "${userSpeech}"`);
+      return 'claims';
+    }
+    
+    // Onboarding keywords
+    if (lowerSpeech.includes('agent') || 
+        lowerSpeech.includes('dealer') || 
+        lowerSpeech.includes('onboard') ||
+        lowerSpeech.includes('contract') ||
+        lowerSpeech.includes('appointment') ||
+        lowerSpeech.includes('portal') ||
+        lowerSpeech.includes('login') ||
+        lowerSpeech.includes('commission') ||
+        lowerSpeech.includes('training')) {
+      console.log(`Classified intent: "onboarding" (keyword match) from speech: "${userSpeech}"`);
+      return 'onboarding';
+    }
+    
+    // Fallback to AI classification for unclear cases
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 150,
@@ -43,14 +73,13 @@ Respond with ONLY the category name, nothing else.`
     });
 
     const intent = message.content[0].text.trim().toLowerCase();
-    console.log(`Classified intent: "${intent}" from speech: "${userSpeech}"`);
+    console.log(`Classified intent: "${intent}" (AI) from speech: "${userSpeech}"`);
     return intent;
   } catch (error) {
-    console.error('Claude API error:', error);
+    console.error('Intent classification error:', error);
     return 'unknown';
   }
 }
-
 app.post('/voice', async (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   
@@ -94,25 +123,30 @@ app.post('/voice', async (req, res) => {
                           userSpeech.toLowerCase().includes('all set') ||
                           userSpeech.toLowerCase().includes('that helps') ||
                           userSpeech.toLowerCase().includes("i'm good") ||
-                          userSpeech.toLowerCase().includes('no thank');
+                          userSpeech.toLowerCase().includes('thank') ||
+                          userSpeech.toLowerCase().includes('okay') ||
+                          userSpeech.toLowerCase().includes('ok');
     
-    const needsHelp = userSpeech.toLowerCase().includes('speak to someone') ||
+    const needsHelp = userSpeech.toLowerCase().includes('speak') ||
                      userSpeech.toLowerCase().includes('representative') ||
                      userSpeech.toLowerCase().includes('transfer') ||
-                     userSpeech.toLowerCase().includes('person');
+                     userSpeech.toLowerCase().includes('person') ||
+                     userSpeech.toLowerCase().includes('help') ||
+                     userSpeech.toLowerCase().includes('talk');
 
     if (req.body.CallContext === 'claims_offered' && isConfirmation) {
+      // User confirmed they're all set
       twiml.say('Great! Have a wonderful day.');
       twiml.hangup();
     } else if (req.body.CallContext === 'claims_offered' && needsHelp) {
+      // User wants to speak to someone
       twiml.say('Transferring you to our claims department.');
       twiml.pause({ length: 1 });
       twiml.say('In production, you would now be connected to a claims specialist. Thank you.');
       twiml.hangup();
     } else {
-      twiml.say('To start a claim, please visit claims dot ascent dot com.');
-      twiml.pause({ length: 1 });
-      twiml.say('Did that answer what you needed, or would you like to speak with someone?');
+      // First time - offer self-service
+      twiml.say('To start a claim, please visit claims dot ascent dot com. Does that help, or would you like to speak with an Ascent representative?');
       
       twiml.gather({
         input: 'speech',
@@ -121,6 +155,7 @@ app.post('/voice', async (req, res) => {
         action: '/voice?CallContext=claims_offered'
       });
     }
+  }
   } else if (intent === 'onboarding') {
     twiml.say('Transferring you to our onboarding department.');
     twiml.pause({ length: 1 });
