@@ -51,7 +51,7 @@ Respond with ONLY the category name, nothing else.`
   }
 }
 
-app.post('/voice', validateTwilioRequest, async (req, res) => {
+app.post('/voice', async (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   
   console.log('Incoming call:', req.body.From);
